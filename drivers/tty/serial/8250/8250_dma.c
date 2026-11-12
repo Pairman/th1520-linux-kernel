@@ -322,6 +322,7 @@ void serial8250_release_dma(struct uart_8250_port *p)
 		dma_release_channel(dma->rxchan);
 		dma->rxchan = NULL;
 	}
+	dma->rx_running = 0;
 
 	if (dma->txchan) {
 		/* Release TX resources */
