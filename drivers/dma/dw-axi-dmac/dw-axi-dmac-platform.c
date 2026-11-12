@@ -482,11 +482,17 @@ static void dw_axi_dma_synchronize(struct dma_chan *dchan)
 static int dma_chan_alloc_chan_resources(struct dma_chan *dchan)
 {
 	struct axi_dma_chan *chan = dchan_to_axi_dma_chan(dchan);
+	int ret;
+
+	ret = pm_runtime_resume_and_get(chan->chip->dev);
+	if (ret < 0)
+		return ret;
 
 	/* ASSERT: channel is idle */
 	if (axi_chan_is_hw_enable(chan)) {
 		dev_err(chan2dev(chan), "%s is non-idle!\n",
 			axi_chan_name(chan));
+		pm_runtime_put(chan->chip->dev);
 		return -EBUSY;
 	}
 
@@ -497,11 +503,10 @@ static int dma_chan_alloc_chan_resources(struct dma_chan *dchan)
 					  64, 0);
 	if (!chan->desc_pool) {
 		dev_err(chan2dev(chan), "No memory for descriptors\n");
+		pm_runtime_put(chan->chip->dev);
 		return -ENOMEM;
 	}
 	dev_vdbg(dchan2dev(dchan), "%s: allocating\n", axi_chan_name(chan));
-
-	pm_runtime_get_sync(chan->chip->dev);
 
 	return 0;
 }
@@ -1334,40 +1339,6 @@ static int __maybe_unused axi_dma_runtime_resume(struct device *dev)
 	return axi_dma_resume(chip);
 }
 
-static int __maybe_unused axi_dma_sleep_suspend(struct device *dev)
-{
-	//struct axi_dma_chip *chip = dev_get_drvdata(dev);
-	//axi_dma_irq_disable(chip);
-	//axi_dma_disable(chip);
-
-	//clk_disable_unprepare(chip->core_clk);
-	//clk_disable_unprepare(chip->cfgr_clk);
-
-	dev_dbg(dev, "%s, %d\n", __func__, __LINE__);
-
-	return 0;
-}
-
-static int __maybe_unused axi_dma_sleep_resume(struct device *dev)
-{
-	struct axi_dma_chip *chip = dev_get_drvdata(dev);
-	int ret = 0;
-
-	ret = clk_prepare_enable(chip->cfgr_clk);
-	if (ret < 0)
-		return ret;
-
-	ret = clk_prepare_enable(chip->core_clk);
-	if (ret < 0)
-		return ret;
-
-	axi_dma_enable(chip);
-	axi_dma_irq_enable(chip);
-	dev_dbg(dev, "%s, %d\n", __func__, __LINE__);
-
-	return 0;
-}
-
 static struct dma_chan *dw_axi_dma_of_xlate(struct of_phandle_args *dma_spec,
 					    struct of_dma *ofdma)
 {
@@ -1652,16 +1623,11 @@ static int dw_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM
 static const struct dev_pm_ops dw_axi_dma_pm_ops = {
-	SET_LATE_SYSTEM_SLEEP_PM_OPS(axi_dma_sleep_suspend, axi_dma_sleep_resume)
+	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
+				pm_runtime_force_resume)
 	SET_RUNTIME_PM_OPS(axi_dma_runtime_suspend, axi_dma_runtime_resume, NULL)
 };
-#else
-static const struct dev_pm_ops dw_axi_dma_pm_ops = {
-	SET_RUNTIME_PM_OPS(axi_dma_runtime_suspend, axi_dma_runtime_resume, NULL)
-};
-#endif
 
 static const struct of_device_id dw_dma_of_id_table[] = {
 	{
