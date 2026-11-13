@@ -1316,8 +1316,10 @@ static int axi_dma_resume(struct axi_dma_chip *chip)
 		return ret;
 
 	ret = clk_prepare_enable(chip->core_clk);
-	if (ret < 0)
+	if (ret < 0) {
+		clk_disable_unprepare(chip->cfgr_clk);
 		return ret;
+	}
 
 	axi_dma_enable(chip);
 	axi_dma_irq_enable(chip);
@@ -1623,9 +1625,47 @@ static int dw_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static bool axi_dma_uses_late_suspend(struct device *dev)
+{
+	return of_device_is_compatible(dev->of_node, "xuantie,th1520-axi-dma");
+}
+
+static int __maybe_unused axi_dma_system_suspend(struct device *dev)
+{
+	if (axi_dma_uses_late_suspend(dev))
+		return 0;
+
+	return pm_runtime_force_suspend(dev);
+}
+
+static int __maybe_unused axi_dma_system_resume(struct device *dev)
+{
+	if (axi_dma_uses_late_suspend(dev))
+		return 0;
+
+	return pm_runtime_force_resume(dev);
+}
+
+static int __maybe_unused axi_dma_suspend_late(struct device *dev)
+{
+	/* TH1520 I2C clients restore GPIO expanders during resume_early. */
+	if (axi_dma_uses_late_suspend(dev))
+		return pm_runtime_force_suspend(dev);
+
+	return 0;
+}
+
+static int __maybe_unused axi_dma_resume_early(struct device *dev)
+{
+	if (axi_dma_uses_late_suspend(dev))
+		return pm_runtime_force_resume(dev);
+
+	return 0;
+}
+
 static const struct dev_pm_ops dw_axi_dma_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
-				pm_runtime_force_resume)
+	SET_SYSTEM_SLEEP_PM_OPS(axi_dma_system_suspend, axi_dma_system_resume)
+	SET_LATE_SYSTEM_SLEEP_PM_OPS(axi_dma_suspend_late, axi_dma_resume_early)
 	SET_RUNTIME_PM_OPS(axi_dma_runtime_suspend, axi_dma_runtime_resume, NULL)
 };
 

@@ -22,6 +22,7 @@
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
 #include <linux/pm_runtime.h>
@@ -276,6 +277,51 @@ static void i2c_dw_remove_lock_support(struct dw_i2c_dev *dev)
 		i2c_dw_semaphore_cb_table[dev->semaphore_idx].remove(dev);
 }
 
+static int dw_i2c_link_dma_supplier(struct device *dev)
+{
+	struct platform_device *supplier;
+	struct of_phandle_args dma;
+	struct device_link *link;
+	const char *mode;
+	int index, ret;
+
+	if (device_property_read_string(dev, "i2c_mode", &mode) ||
+	    strcmp(mode, "dma"))
+		return 0;
+
+	/* The vendor DMA transfer path requests only the named TX channel. */
+	index = of_property_match_string(dev->of_node, "dma-names", "tx");
+	if (index < 0)
+		return 0;
+	ret = of_parse_phandle_with_args(dev->of_node, "dmas", "#dma-cells",
+					 index, &dma);
+	if (ret)
+		return ret;
+	if (!of_device_is_compatible(dma.np, "xuantie,th1520-axi-dma")) {
+		of_node_put(dma.np);
+		return 0;
+	}
+
+	supplier = of_find_device_by_node(dma.np);
+	of_node_put(dma.np);
+	if (!supplier)
+		return -EPROBE_DEFER;
+
+	device_lock(&supplier->dev);
+	if (!device_is_bound(&supplier->dev)) {
+		device_unlock(&supplier->dev);
+		put_device(&supplier->dev);
+		return -EPROBE_DEFER;
+	}
+
+	/* Order late suspend/early resume even when no DMA channel is held. */
+	link = device_link_add(dev, &supplier->dev, DL_FLAG_AUTOREMOVE_CONSUMER);
+	device_unlock(&supplier->dev);
+	put_device(&supplier->dev);
+
+	return link ? 0 : -EINVAL;
+}
+
 static int dw_i2c_plat_probe(struct platform_device *pdev)
 {
 	struct device *device = &pdev->dev;
@@ -283,6 +329,10 @@ static int dw_i2c_plat_probe(struct platform_device *pdev)
 	struct dw_i2c_dev *dev;
 	struct i2c_timings *t;
 	int irq, ret;
+
+	ret = dw_i2c_link_dma_supplier(device);
+	if (ret)
+		return dev_err_probe(device, ret, "failed to link DMA supplier\n");
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
