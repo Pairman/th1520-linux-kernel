@@ -292,8 +292,6 @@ dev_dbg_once(p->port.dev,
 						UART_XMIT_SIZE,
 						DMA_TO_DEVICE);
 		if (dma_mapping_error(dma->txchan->device->dev, dma->tx_addr)) {
-			dma_free_coherent(dma->rxchan->device->dev, dma->rx_size,
-					  dma->rx_buf, dma->rx_addr);
 			ret = -ENOMEM;
 			goto err;
 		}
@@ -302,8 +300,17 @@ dev_dbg_once(p->port.dev,
 	return 0;
 err:
 	dma_release_channel(dma->txchan);
+	dma->txchan = NULL;
 release_rx:
-	dma_release_channel(dma->rxchan);
+	if (dma->rxchan) {
+		if (dma->rx_buf) {
+			dma_free_coherent(dma->rxchan->device->dev, dma->rx_size,
+					  dma->rx_buf, dma->rx_addr);
+			dma->rx_buf = NULL;
+		}
+		dma_release_channel(dma->rxchan);
+		dma->rxchan = NULL;
+	}
 	return ret;
 }
 EXPORT_SYMBOL_GPL(serial8250_request_dma);
@@ -320,6 +327,7 @@ void serial8250_release_dma(struct uart_8250_port *p)
 		dmaengine_terminate_sync(dma->rxchan);
 		dma_free_coherent(dma->rxchan->device->dev, dma->rx_size, dma->rx_buf,
 				  dma->rx_addr);
+		dma->rx_buf = NULL;
 		dma_release_channel(dma->rxchan);
 		dma->rxchan = NULL;
 	}

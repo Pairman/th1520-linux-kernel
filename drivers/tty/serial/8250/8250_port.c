@@ -1947,7 +1947,7 @@ int serial8250_handle_irq(struct uart_port *port, unsigned int iir)
 	}
 	serial8250_modem_status(up);
 	if ((status & UART_LSR_THRE) && (up->ier & UART_IER_THRI)) {
-		if (!up->dma || up->dma->tx_err)
+		if (!up->dma || !up->dma->txchan || up->dma->tx_err)
 			serial8250_tx_chars(up);
 		else if (!up->dma->tx_running)
 			__stop_tx(up);
@@ -2457,14 +2457,8 @@ dont_test_tx_en:
 			dev_warn_ratelimited(port->dev, "%s\n", msg);
 			up->dma = NULL;
 		}
-
-
 		if (up->dma && !up->dma->rxchan && !up->dma->txchan)
 			up->dma = NULL;
-		if (up->dma && !up->dma->rxchan)
-			up->dma->rx_dma = NULL;
-		if (up->dma && !up->dma->txchan)
-			up->dma->tx_dma = NULL;
 	}
 
 	/*
