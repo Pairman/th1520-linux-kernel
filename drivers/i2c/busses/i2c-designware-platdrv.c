@@ -308,7 +308,7 @@ static int dw_i2c_link_dma_supplier(struct device *dev)
 		return -EPROBE_DEFER;
 
 	device_lock(&supplier->dev);
-	if (!device_is_bound(&supplier->dev)) {
+	if (!supplier->dev.driver) {
 		device_unlock(&supplier->dev);
 		put_device(&supplier->dev);
 		return -EPROBE_DEFER;
